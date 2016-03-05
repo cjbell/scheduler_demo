@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <title>Hello SchedulerDemo!</title>
+    <link rel="stylesheet" href="<%= static_path(@conn, "/css/app.css") %>">
+    <style type="text/css">
+    button {
+      margin: 2px;
+      display: inline-block;
+    }
+    .timeslot {
+      background-color: green;
+      color: #fff;
+      border: none;
+      outline: none;
+    }
+    .timeslot.is-disabled {
+      background-color: red;
+    }
+    .timeslot.is-selected {
+      background-color: #333!important;
+    }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <%= render @view_module, @view_template, assigns %>
+    </div> <!-- /container -->
+    <script src="<%= static_path(@conn, "/js/bundle.js") %>"></script>
+  </body>
+</html>
