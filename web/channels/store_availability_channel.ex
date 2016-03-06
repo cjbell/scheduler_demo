@@ -13,7 +13,7 @@ defmodule SchedulerDemo.StoreAvailabilityChannel do
     {:ok, socket}
   end
 
-  def broadcast_change(store_id, date, slots) do
+  def broadcast_change(store_id, _, slots) do
     payload = %{slots: parse_slots(slots)}
     SchedulerDemo.Endpoint.broadcast("store_availability:" <> to_string(store_id), "update", payload)
   end
@@ -28,13 +28,24 @@ defmodule SchedulerDemo.StoreAvailabilityChannel do
 
   def handle_in("select_timeslot", %{"time" => time}, socket) do
     %{store: store, date: date, order_id: order_id} = socket.assigns
-    case AvailabilityManager.Manager.hold(store, order_id, {date, parse_time(time)}) do
+
+    AvailabilityManager.Manager.hold(store, order_id, {date, parse_time(time)})
+    |> case do
       :ok ->
         slots = remaining_slots(socket.assigns.store, socket.assigns.date)
         broadcast! socket, "update", %{slots: slots}
         {:reply, :ok, socket}
       _ ->
         {:reply, :error, socket}
+    end
+  end
+
+  def handle_in("confirm_timeslot", _, socket) do
+    %{store: store, order_id: order_id} = socket.assigns
+    AvailabilityManager.Manager.confirm(store, order_id)
+    |> case do
+      :ok -> {:reply, :ok, socket}
+      _   -> {:reply, :error, socket}
     end
   end
 

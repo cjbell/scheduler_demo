@@ -2,6 +2,7 @@ import {connectSocket} from '../utils/channel';
 import groupBy from 'lodash/groupBy';
 
 export const SELECT_TIMESLOT = 'SELECT_TIMESLOT';
+export const CONFIRM_TIMESLOT = 'CONFIRM_TIMESLOT';
 export const SELECT_DATE = 'SELECT_DATE';
 export const RECEIVE_TIMESLOTS = 'RECEIVE_TIMESLOTS';
 
@@ -20,6 +21,13 @@ export function selectTimeslot(timeslot) {
   return (dispatch, getState) => {
     channel.push("select_timeslot", {time: timeslot.time})
       .receive("ok", () => dispatch({type: SELECT_TIMESLOT, timeslot: timeslot}));
+  }
+}
+
+export function confirmTimeslot() {
+  return dispatch => {
+    channel.push("confirm_timeslot")
+      .receive("ok", () => dispatch({type: CONFIRM_TIMESLOT}));
   }
 }
 

@@ -1,7 +1,7 @@
 import React, { Component, PropTypes } from 'react';
 import { connect } from 'react-redux';
 import { map } from 'lodash';
-import { selectDate, selectTimeslot, connectToChannel } from '../actions';
+import { selectDate, selectTimeslot, connectToChannel, confirmTimeslot } from '../actions';
 import keys from 'lodash/keys';
 import DayPicker from '../components/DayPicker';
 import Timeslot from '../components/Timeslot';
@@ -62,7 +62,7 @@ class Root extends Component {
         </div>
 
         {selectedTimeslot.time &&
-         <button>
+         <button onClick={() => dispatch(confirmTimeslot())}>
            Confirm
          </button>}
 

@@ -5,8 +5,8 @@ defmodule AvailabilityManager.Manager do
 
   def start_link(store_id, initial_slots, event_manager) do
     Logger.info "Starting AvailabilityManager for #{store_id}"
-    name = ref(store_id)
-    GenServer.start_link(__MODULE__, {store_id, initial_slots, event_manager}, name: name)
+    state = {store_id, initial_slots, event_manager}
+    GenServer.start_link(__MODULE__, state, name: ref(store_id))
   end
 
   @doc """
@@ -79,8 +79,9 @@ defmodule AvailabilityManager.Manager do
 
   def handle_call({:hold, order_id, date, time}, _, {_, table, _} = state) do
     if has_availablility?(table, date, time) do
-      order  = lookup_order(table, order_id)
-      result = hold_order(order, {order_id, date, time}, state)
+      result =
+        lookup_order(table, order_id)
+        |> hold_order({order_id, date, time}, state)
 
       {:reply, result, state}
     else
@@ -148,7 +149,8 @@ defmodule AvailabilityManager.Manager do
   def handle_info({:reservation_expired, order_id}, {store_id, table, event_manager} = state) do
     Logger.info "AvailabilityManager: Removing expired order #{order_id}"
 
-    case lookup_order(table, order_id) do
+    lookup_order(table, order_id)
+    |> case do
       {date, _, {:pending, _, _}} ->
         remove_order(table, order_id, :pending)
         # Notify any listeners of the cancellation
@@ -193,7 +195,7 @@ defmodule AvailabilityManager.Manager do
     {:error, :not_available}
   end
 
-  defp hold_order(_, {order_id, date, time}, {store_id, table, _}) do
+  defp hold_order(_, {order_id, date, time}, {_, table, _}) do
     {:ok, pid} = Reservation.start_link(self, order_id)
     insert_order(table, date, time, :pending, order_id, pid)
 
@@ -237,7 +239,7 @@ defmodule AvailabilityManager.Manager do
     :ets.match_object(table, {date, time, {:total, :_}})
   end
 
-  defp count_type(table, date, time \\ :_, type) do
+  defp count_type(table, date, time, type) do
     select_args = [{build_table_match(date, time, type, :_), [], [true]}]
     :ets.select_count(table, select_args)
   end
