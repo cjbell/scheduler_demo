@@ -29,7 +29,7 @@ defmodule SchedulerDemo.StoreAvailabilityChannel do
   def handle_in("select_timeslot", %{"time" => time}, socket) do
     %{store: store, date: date, order_id: order_id} = socket.assigns
 
-    AvailabilityManager.Manager.hold(store, order_id, {date, parse_time(time)})
+    AvailabilityManager.ReservationTracker.hold(store, order_id, {date, parse_time(time)})
     |> case do
       :ok ->
         slots = remaining_slots(socket.assigns.store, socket.assigns.date)
@@ -42,7 +42,7 @@ defmodule SchedulerDemo.StoreAvailabilityChannel do
 
   def handle_in("confirm_timeslot", _, socket) do
     %{store: store, order_id: order_id} = socket.assigns
-    AvailabilityManager.Manager.confirm(store, order_id)
+    AvailabilityManager.ReservationTracker.confirm(store, order_id)
     |> case do
       :ok -> {:reply, :ok, socket}
       _   -> {:reply, :error, socket}
@@ -69,12 +69,12 @@ defmodule SchedulerDemo.StoreAvailabilityChannel do
   end
 
   defp remaining_slots(store) do
-    AvailabilityManager.Manager.availability(store)
+    AvailabilityManager.ReservationTracker.availability(store)
     |> parse_slots
   end
 
   defp remaining_slots(store, date) do
-    AvailabilityManager.Manager.availability(store, date)
+    AvailabilityManager.ReservationTracker.availability(store, date)
     |> parse_slots
   end
 
@@ -87,7 +87,7 @@ defmodule SchedulerDemo.StoreAvailabilityChannel do
   end
 
   defp lookup_current_slot(store_id, order_id) do
-    AvailabilityManager.Manager.lookup(store_id, order_id)
+    AvailabilityManager.ReservationTracker.lookup(store_id, order_id)
     |> case do
       {date, time, _} ->
         %{date: date_to_string(date),

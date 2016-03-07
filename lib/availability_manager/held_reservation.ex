@@ -1,4 +1,4 @@
-defmodule AvailabilityManager.Reservation do
+defmodule AvailabilityManager.HeldReservation do
   use GenServer
   @wait_until 10000
 

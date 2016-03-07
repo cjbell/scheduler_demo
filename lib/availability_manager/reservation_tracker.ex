@@ -1,17 +1,14 @@
-defmodule AvailabilityManager.Manager do
-  alias AvailabilityManager.Reservation
+defmodule AvailabilityManager.ReservationTracker do
   use GenServer
   require Logger
 
   defstruct table: nil,
             events: nil,
-            initial: nil,
             store_id: nil
 
-  def start_link(store_id, initial, events) do
+  def start_link(store_id, events) do
     Logger.info "Starting AvailabilityManager for #{store_id}"
-    state = {store_id, initial, events}
-    GenServer.start_link(__MODULE__, state, name: ref(store_id))
+    GenServer.start_link(__MODULE__, {store_id, events}, name: ref(store_id))
   end
 
   @doc """
@@ -83,10 +80,9 @@ defmodule AvailabilityManager.Manager do
     GenServer.cast ref(store_id), {:reservation_expired, order_id}
   end
 
-  def init({store_id, initial, events}) do
+  def init({store_id, events}) do
     state = %__MODULE__{
       store_id: store_id,
-      initial: initial,
       events: events
     }
 
@@ -107,7 +103,7 @@ defmodule AvailabilityManager.Manager do
             {:error, :already_confirmed}
           _ ->
             on_exit = fn -> reservation_expired(store_id, order_id) end
-            {:ok, pid} = Reservation.start_link(on_exit)
+            {:ok, pid} = AvailabilityManager.HeldReservation.start_link(on_exit)
             insert_order(table, date, time, :pending, order_id, pid)
             :ok
         end
@@ -192,16 +188,7 @@ defmodule AvailabilityManager.Manager do
     {:noreply, state}
   end
 
-  def handle_info({:"ETS-TRANSFER", table, _, _}, %{initial: initial} = state) do
-    Logger.info "Receiving ETS table"
-
-    # Check for data in the table, otherwise set the initial state
-    size = :ets.info(table) |> Keyword.get(:size)
-    if size == 0 do
-      Logger.info "Populating with initial data"
-      :ets.insert(table, initial)
-    end
-
+  def handle_info({:"ETS-TRANSFER", table, _, _}, state) do
     {:noreply, %{state | table: table}}
   end
 

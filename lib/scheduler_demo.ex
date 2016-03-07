@@ -12,7 +12,7 @@ defmodule SchedulerDemo do
       # Start the Ecto repository
       supervisor(SchedulerDemo.Repo, []),
 
-      supervisor(AvailabilityManager, []),
+      supervisor(AvailabilityManager, [1]),
       # Here you could define other workers and supervisors as children
       # worker(SchedulerDemo.Worker, [arg1, arg2, arg3]),
     ]
