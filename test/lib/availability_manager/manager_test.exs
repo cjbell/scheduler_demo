@@ -13,7 +13,12 @@ defmodule AvailabilityManager.ManagerTest do
     ]
 
     {:ok, notifier} = GenEvent.start_link
-    {:ok, _pid} = Manager.start_link(store_id, slots, notifier)
+    {:ok, pid} = Manager.start_link(store_id, slots, notifier)
+
+    # Setup the table and send to the manager
+    table = :ets.new(__MODULE__, [:bag])
+    :ets.give_away(table, pid, {})
+
     {:ok, store_id: store_id, date: date, slots: slots}
   end
 

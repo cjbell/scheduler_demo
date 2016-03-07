@@ -3,9 +3,14 @@ defmodule AvailabilityManager.Manager do
   use GenServer
   require Logger
 
-  def start_link(store_id, initial_slots, event_manager) do
+  defstruct table: nil,
+            events: nil,
+            initial: nil,
+            store_id: nil
+
+  def start_link(store_id, initial, events) do
     Logger.info "Starting AvailabilityManager for #{store_id}"
-    state = {store_id, initial_slots, event_manager}
+    state = {store_id, initial, events}
     GenServer.start_link(__MODULE__, state, name: ref(store_id))
   end
 
@@ -71,17 +76,41 @@ defmodule AvailabilityManager.Manager do
     try_call store_id, {:confirmed_orders, date, time}
   end
 
-  def init({store_id, initial_slots, event_manager}) do
-    table = :ets.new __MODULE__, [:bag]
-    :ets.insert table, initial_slots
-    {:ok, {store_id, table, event_manager}}
+  @doc """
+    Remove an expired reservation. Callback usually called by Reservation process.
+  """
+  def reservation_expired(store_id, order_id) do
+    GenServer.cast ref(store_id), {:reservation_expired, order_id}
   end
 
-  def handle_call({:hold, order_id, date, time}, _, {_, table, _} = state) do
+  def init({store_id, initial, events}) do
+    state = %__MODULE__{
+      store_id: store_id,
+      initial: initial,
+      events: events
+    }
+
+    {:ok, state}
+  end
+
+  def handle_call({:hold, order_id, date, time}, _, %{table: table, store_id: store_id} = state) do
     if has_availablility?(table, date, time) do
       result =
         lookup_order(table, order_id)
-        |> hold_order({order_id, date, time}, state)
+        |> case do
+          {_, _, {:pending, _, pid}} ->
+            Process.send(pid, :renew, [])
+            remove_order(table, order_id, :pending)
+            insert_order(table, date, time, :pending, order_id, pid)
+            :ok
+          {_, _, {:confirmed, _, _}} ->
+            {:error, :already_confirmed}
+          _ ->
+            on_exit = fn -> reservation_expired(store_id, order_id) end
+            {:ok, pid} = Reservation.start_link(on_exit)
+            insert_order(table, date, time, :pending, order_id, pid)
+            :ok
+        end
 
       {:reply, result, state}
     else
@@ -89,7 +118,7 @@ defmodule AvailabilityManager.Manager do
     end
   end
 
-  def handle_call({:confirm, order_id}, _, {_, table, _} = state) do
+  def handle_call({:confirm, order_id}, _, %{table: table} = state) do
     result =
       lookup_order(table, order_id)
       |> case do
@@ -103,37 +132,37 @@ defmodule AvailabilityManager.Manager do
     {:reply, result, state}
   end
 
-  def handle_call({:expire, order_id}, _, {_, table, _} = state) do
+  def handle_call({:expire, order_id}, _, %{table: table} = state) do
     case lookup_order(table, order_id) do
       {_, _, {:pending, _, pid}} ->
-        Process.send(:shutdown, pid)
+        Process.send(pid, :shutdown, [])
         {:reply, :ok, state}
       _ ->
         {:reply, :error, state}
     end
   end
 
-  def handle_call({:lookup, order_id}, _, {_, table, _} = state) do
+  def handle_call({:lookup, order_id}, _, %{table: table} = state) do
     {:reply, lookup_order(table, order_id), state}
   end
 
-  def handle_call({:num_of_type, date, type}, _, {_, table, _} = state) do
+  def handle_call({:num_of_type, date, type}, _, %{table: table} = state) do
     {:reply, count_type(table, date, nil, type), state}
   end
 
-  def handle_call({:num_of_type, date, time, type}, _, {_, table, _} = state) do
+  def handle_call({:num_of_type, date, time, type}, _, %{table: table} = state) do
     {:reply, count_type(table, date, time, type), state}
   end
 
-  def handle_call(:availability, _, {_, table, _} = state) do
+  def handle_call(:availability, _, %{table: table} = state) do
     {:reply, availability_list(table), state}
   end
 
-  def handle_call({:availability, date}, _, {_, table, _} = state) do
+  def handle_call({:availability, date}, _, %{table: table} = state) do
     {:reply, availability_list(table, date), state}
   end
 
-  def handle_call({:confirmed_orders, date, time}, _, {_, table, _} = state) do
+  def handle_call({:confirmed_orders, date, time}, _, %{table: table} = state) do
     orders =
       :ets.match_object(table, build_table_match(date, time, :confirmed))
       |> Enum.map(fn {_, _, {_, order_id, _}} -> order_id end)
@@ -141,12 +170,12 @@ defmodule AvailabilityManager.Manager do
     {:reply, orders, state}
   end
 
-  def handle_call({:remove, order_id}, _, {_, table, _} = state) do
+  def handle_call({:remove, order_id}, _, %{table: table} = state) do
     remove_order(table, order_id)
     {:reply, :ok, state}
   end
 
-  def handle_info({:reservation_expired, order_id}, {store_id, table, event_manager} = state) do
+  def handle_cast({:reservation_expired, order_id}, %{table: table, store_id: store_id, events: events} = state) do
     Logger.info "AvailabilityManager: Removing expired order #{order_id}"
 
     lookup_order(table, order_id)
@@ -155,7 +184,7 @@ defmodule AvailabilityManager.Manager do
         remove_order(table, order_id, :pending)
         # Notify any listeners of the cancellation
         availability = availability_list(table, date)
-        GenEvent.sync_notify(event_manager, {:update, store_id, date, availability})
+        GenEvent.sync_notify(events, {:update, store_id, date, availability})
 
       _ -> {:error, :not_exists}
     end
@@ -163,45 +192,37 @@ defmodule AvailabilityManager.Manager do
     {:noreply, state}
   end
 
+  def handle_info({:"ETS-TRANSFER", table, _, _}, %{initial: initial} = state) do
+    Logger.info "Receiving ETS table"
+
+    # Check for data in the table, otherwise set the initial state
+    size = :ets.info(table) |> Keyword.get(:size)
+    if size == 0 do
+      Logger.info "Populating with initial data"
+      :ets.insert(table, initial)
+    end
+
+    {:noreply, %{state | table: table}}
+  end
+
   def handle_info(_msg, state) do
     {:noreply, state}
   end
 
   def ref(store_id) do
-    {:global, {:availability_manager, to_string(store_id)}}
+    :"AvailabilityManager.Manager.#{to_string(store_id)}"
   end
 
   def try_call(store_id, call_function) do
-    case whereis(store_id) do
+    ref(store_id)
+    |> GenServer.whereis
+    |> case do
       nil -> {:error, :invalid}
       manager -> GenServer.call(manager, call_function)
     end
   end
 
-  def whereis(store_id) do
-    GenServer.whereis(ref(store_id))
-  end
-
   ## Private order methods
-
-  defp hold_order({_, _, {:pending, order_id, pid}}, {_, date, time}, {_, table, _}) do
-    Process.send(pid, :renew, [])
-    remove_order(table, order_id, :pending)
-    insert_order(table, date, time, :pending, order_id, pid)
-    :ok
-  end
-
-  defp hold_order({_, _, {:confirmed, _, _}}, _, _) do
-    {:error, :not_available}
-  end
-
-  defp hold_order(_, {order_id, date, time}, {_, table, _}) do
-    {:ok, pid} = Reservation.start_link(self, order_id)
-    insert_order(table, date, time, :pending, order_id, pid)
-
-    :ok
-  end
-
   defp lookup_order(table, order_id) do
     :ets.match_object(table, build_table_match(:_, :_, :_, order_id))
     |> case do
@@ -248,8 +269,9 @@ defmodule AvailabilityManager.Manager do
     Enum.map(totals_list, fn {date, time, {_, total}} ->
       pending   = count_type(table, date, time, :pending)
       confirmed = count_type(table, date, time, :confirmed)
+      available = total - pending - confirmed
 
-      {date, time, %{total: total, available: total - pending - confirmed}}
+      {date, time, %{total: total, available: available}}
     end)
   end
 

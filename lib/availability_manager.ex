@@ -1,28 +1,17 @@
 defmodule AvailabilityManager do
   use Supervisor
-  alias AvailabilityManager.{NotifierWatcher, Manager, SlotCreator}
+  @name AvailabilityManager
 
   def start_link do
-    Supervisor.start_link(__MODULE__, [])
+    Supervisor.start_link(__MODULE__, [], name: @name)
   end
 
   def init([]) do
-    {:ok, notifier} = GenEvent.start_link
+    children = Enum.map(store_ids, fn store_id ->
+      supervisor(AvailabilityManager.Supervisor, [store_id, notifiers])
+    end)
 
-    children = [
-      worker(NotifierWatcher, [notifier, notifiers])
-    ]
-
-    children = children ++
-      Enum.map(store_ids, fn store_id ->
-        slots = SlotCreator.generate_slots(store_id)
-        worker(Manager, [store_id, slots, notifier])
-      end)
-
-    # See http://elixir-lang.org/docs/stable/elixir/Supervisor.html
-    # for other strategies and supported options
-    opts = [strategy: :one_for_one, name: AvailabilityManager.Supervisor]
-    supervise(children, opts)
+    supervise(children, strategy: :one_for_one)
   end
 
   defp store_ids, do: [1]
