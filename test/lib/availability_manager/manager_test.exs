@@ -138,7 +138,15 @@ defmodule AvailabilityManager.ManagerTest do
     Manager.hold(store_id, order_id, {date, time})
     Manager.confirm(store_id, order_id)
 
-    assert Manager.confirmed_orders(store_id, date, time) ==
-           [order_id]
+    assert Manager.confirmed_orders(store_id, date, time) == [order_id]
+  end
+
+  test "can expire a currently held reservation", %{store_id: store_id, date: date} do
+    order_id = "123"
+
+    Manager.hold(store_id, order_id, {date, {11, 0, 0}})
+    Manager.expire(store_id, order_id)
+
+    assert Manager.lookup(store_id, order_id) == nil
   end
 end

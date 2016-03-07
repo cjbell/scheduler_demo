@@ -3,7 +3,7 @@ defmodule AvailabilityManager.Supervisor do
   alias AvailabilityManager.{NotifierWatcher, Manager, SlotCreator}
 
   def start_link(store_id, notifiers) do
-    {:ok, pid} = Supervisor.start_link(__MODULE__, {store_id, notifiers})
+    Supervisor.start_link(__MODULE__, {store_id, notifiers})
   end
 
   def init({store_id, notifiers}) do
